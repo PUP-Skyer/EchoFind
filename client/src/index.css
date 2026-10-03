@@ -1,0 +1,23 @@
+@import '@lark-apaas/client-toolkit/lib/index.css';
+@import "tw-animate-css";
+@import "./tailwind-theme.css";
+@import "./typography.css";
+
+@config "../../tailwind.config.ts";
+
+:root {
+  --app-brightness: 100%;
+  --app-font-size: 14px;
+  --app-font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC", "Microsoft YaHei", sans-serif;
+}
+
+html,
+body {
+  font-size: var(--app-font-size);
+  font-family: var(--app-font-family);
+}
+
+body {
+  filter: brightness(var(--app-brightness));
+  transition: filter 0.2s ease;
+}

@@ -1,0 +1,36 @@
+{
+  "id": "echofind_xiaoxun_ai_chat_1",
+  "pluginKey": "@official-plugins/ai-text-generate",
+  "pluginVersion": "1.0.21",
+  "name": "EchoFind中控台小寻AI助手对话生成",
+  "description": "为EchoFind中控台的「小寻」AI助手多轮对话功能提供文本生成能力，支持上下文记忆，响应用户各类对话需求。",
+  "icon": "",
+  "paramsSchema": {
+    "type": "object",
+    "properties": {
+      "dialog_context": {
+        "type": "string",
+        "description": "历史对话上下文，包含多轮用户提问和助手回复记录"
+      },
+      "user_question": {
+        "type": "string",
+        "description": "用户当前最新的提问内容"
+      }
+    },
+    "required": [
+      "dialog_context",
+      "user_question"
+    ]
+  },
+  "formValue": {
+    "modelID": "2015",
+    "modelParams": {
+      "maxTokens": 8192,
+      "temperature": 0.5
+    },
+    "prompt": "你是EchoFind中控台的AI助手「小寻」，专业、友好、耐心，熟悉中控台各项功能操作和业务知识。\n\n历史对话上下文：\n{{input.dialog_context}}\n\n用户当前提问：{{input.user_question}}\n\n回答要求：\n1. 结合历史对话上下文理解用户意图，保持对话连贯性\n2. 回答准确简洁，专业易懂，避免冗余内容\n3. 涉及中控台功能操作时，提供清晰的步骤指引\n4. 语气亲切自然，如同专业的客服专员\n5. 对于不确定的问题，诚实告知无法回答并提供进一步咨询建议"
+  },
+  "createdAt": 1790939083468,
+  "updatedAt": 1790939083468,
+  "createdBy": 7687860656644559167
+}

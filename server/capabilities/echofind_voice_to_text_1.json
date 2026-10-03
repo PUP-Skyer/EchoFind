@@ -1,0 +1,36 @@
+{
+  "id": "echofind_voice_to_text_1",
+  "pluginKey": "@official-plugins/speech-file-to-text",
+  "pluginVersion": "1.0.15",
+  "name": "EchoFind中控台小寻助手语音识别",
+  "description": "为EchoFind中控台的「小寻」AI助手提供语音转文字能力，用户点击麦克风录音后，自动将语音内容转换为文字填入输入框",
+  "icon": "",
+  "paramsSchema": {
+    "type": "object",
+    "properties": {
+      "audio_url": {
+        "type": "array",
+        "format": "plugin-file-url",
+        "description": "用户录音生成的音频文件URL",
+        "items": {
+          "type": "string"
+        }
+      },
+      "language": {
+        "type": "string",
+        "description": "语音识别语言代码，可选值：zh（中文普通话）、en（英语）、ja（日语）、ko（韩语）、fr（法语）、es（西班牙语）、pt（葡萄牙语）、id（印尼语）、ru（俄语）、ms（马来语）"
+      }
+    },
+    "required": [
+      "audio_url",
+      "language"
+    ]
+  },
+  "formValue": {
+    "audioUrl": "{{input.audio_url}}",
+    "language": "{{input.language}}"
+  },
+  "createdAt": 1790939081716,
+  "updatedAt": 1790939081716,
+  "createdBy": 7687860656644559167
+}

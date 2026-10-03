@@ -1,0 +1,36 @@
+{
+  "id": "echofind_xun_item_recognition_1",
+  "pluginKey": "@official-plugins/ai-image-understanding",
+  "pluginVersion": "1.0.22",
+  "name": "EchoFind小寻AI拍照物品识别",
+  "description": "用于EchoFind中控台「小寻」AI助手的拍照识别物品功能，识别图片中的物品并返回关联物品库的物品信息",
+  "icon": "",
+  "paramsSchema": {
+    "type": "object",
+    "properties": {
+      "item_image": {
+        "format": "plugin-image-url",
+        "description": "用户拍摄的待识别物品图片",
+        "items": {
+          "type": "string"
+        },
+        "type": "array"
+      }
+    },
+    "required": [
+      "item_image"
+    ]
+  },
+  "formValue": {
+    "prompt": "你是EchoFind智能物品识别专家，专门负责识别图片中的物品并匹配物品库信息。\n\n请识别图片中的物品，输出内容要求：\n1. 物品名称：准确识别物品的通用名称和具体型号（如有）\n2. 物品分类：给出标准的物品分类标签\n3. 特征描述：描述物品的主要外观特征、品牌标识（如有）\n4. 关联信息：提供该物品常见的用途、参数等相关信息，便于关联物品库匹配\n\n输出要求：\n- 识别结果准确客观，不确定的内容请标注\"待确认\"\n- 信息尽可能详细，便于后续匹配物品库的对应条目",
+    "images": "{{input.item_image}}",
+    "modelID": "2015",
+    "modelParams": {
+      "maxTokens": 8192,
+      "temperature": 0.5
+    }
+  },
+  "createdAt": 1790939087719,
+  "updatedAt": 1790939087719,
+  "createdBy": 7687860656644559167
+}
