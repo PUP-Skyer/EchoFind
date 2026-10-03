@@ -20,6 +20,24 @@ EchoFind 通过低功耗蓝牙贴纸（ESP32）绑定日常物品，利用信号
 - **统计看板 Statistics**：数据可视化统计
 - **设置 Settings**：飞书配置、AI 模型配置、基站配置
 
+## 功能截图
+
+**概览仪表盘** — 数据流健康状态、关键指标、在线率与最近上报一览
+
+![概览仪表盘](docs/screenshots/dashboard.png)
+
+**物品管理** — 物品列表、信号强度、存放位置与贴纸绑定管理
+
+![物品管理](docs/screenshots/items.png)
+
+**日程清单** — 日程日历与提醒必带物品，联动小寻智能提醒
+
+![日程清单](docs/screenshots/schedule.png)
+
+**宠物乐园** — 桌宠养成与语音播报，提升寻物交互体验
+
+![宠物乐园](docs/screenshots/pet-paradise.png)
+
 ## 技术栈
 
 - **前端**：React 19 + TypeScript + Tailwind CSS + shadcn/ui + ReactECharts
