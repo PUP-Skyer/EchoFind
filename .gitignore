@@ -1,18 +1,26 @@
 # Dependencies
 node_modules/
-*/node_modules/
+*/
+node_modules/
 
 # Production builds
 dist/
-*/dist/
+*/
+dist/
 build/
-*/build/
+*/
+build/
 
 # Environment files
 .env
 .env.local
 .env.*
 !.env.example
+
+# Hardware credentials
+硬件/secrets.py
+**/secrets.py
+!secrets.example.py
 
 # Logs
 npm-debug.log*
