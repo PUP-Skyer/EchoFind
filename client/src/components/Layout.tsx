@@ -11,6 +11,7 @@ import {
   Bell,
   CalendarDays,
   Search,
+  Satellite,
 } from 'lucide-react';
 import { XiaoxunAssistant } from '@client/src/components/xiaoxun';
 import UserMenuPopover from '@client/src/components/UserMenuPopover';
@@ -57,6 +58,11 @@ const mainMenuItems: MenuItem[] = [
     path: '/schedule',
     label: '日程清单',
     icon: <CalendarDays size={18} />,
+  },
+  {
+    path: '/ble-control',
+    label: 'BLE找物',
+    icon: <Satellite size={18} />,
   },
 ];
 

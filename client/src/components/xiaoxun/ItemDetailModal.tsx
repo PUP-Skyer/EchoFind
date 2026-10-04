@@ -138,7 +138,7 @@ const ItemDetailModal: React.FC<ItemDetailModalProps> = ({
                 <div className="w-3.5 h-3.5 rounded-sm border-2 border-[#B2BEC3]" />
               )}
               <span className="text-sm text-[#2D3436]">
-                {item.isStored ? '已存入阻隔盒' : '未存入阻隔盒'}
+                {item.isStored ? '已存入' : '未存入'}
               </span>
             </div>
           </div>
@@ -156,8 +156,8 @@ const ItemDetailModal: React.FC<ItemDetailModalProps> = ({
             </div>
             <div className="text-sm text-[#636E72] leading-relaxed">
               {item.isStored
-                ? '该物品已存入阻隔盒，出门前记得带上哦～ 点击下方"标记已带"来记录。'
-                : '小寻发现这个物品还没存入阻隔盒，建议尽快归位，避免出门找不到。'}
+                ? '该物品已存入，出门前记得带上哦～ 点击下方"标记已带"来记录。'
+                : '小寻发现这个物品还没存入，建议尽快归位，避免出门找不到。'}
             </div>
           </div>
 

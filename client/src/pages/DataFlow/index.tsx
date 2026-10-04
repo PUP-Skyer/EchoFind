@@ -163,7 +163,7 @@ const DataFlow: React.FC = () => {
     [signalDist],
   );
 
-  if (loading || !dataflow) {
+  if (loading && !dataflow) {
     return (
       <div>
         <h1 className="text-2xl font-semibold text-[#2D3436]">数据流</h1>

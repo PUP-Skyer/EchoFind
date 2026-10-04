@@ -5,7 +5,6 @@ import { toast } from 'sonner';
 import type {
   EchofindXiaoxunItemPhotoRecognitionOneOutput,
   EchofindVoiceToTextOneOutput,
-  EchofindXiaoxunSpeechBroadcastOneOutput,
 } from '@shared/plugin-types';
 import { echofind } from '@client/src/api';
 import type { Item, QuickEntryItem, AIChatResponse } from '@shared/api.interface';
@@ -68,7 +67,6 @@ interface ItemListPayload {
 
 const IMAGE_PLUGIN_ID = 'echofind_xiaoxun_item_photo_recognition_1';
 const VOICE_PLUGIN_ID = 'echofind_voice_to_text_1';
-const TTS_PLUGIN_ID = 'echofind_xiaoxun_speech_broadcast_1';
 
 function generateId(): string {
   return `msg_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
@@ -131,27 +129,6 @@ export const useXiaoxunChat = () => {
       messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     }, 50);
   }, []);
-
-  const broadcastItemVoice = useCallback(
-    async (item: Pick<Item, 'name' | 'isStored'>): Promise<void> => {
-      try {
-        const location = item.isStored ? '阻隔盒中' : '附近区域';
-        const result = await capabilityClient
-          .load(TTS_PLUGIN_ID)
-          .call<EchofindXiaoxunSpeechBroadcastOneOutput>('speechSynthesis', {
-            item_info: item.name,
-            item_location: location,
-          });
-        if (result.audioUrl) {
-          const audio = new Audio(result.audioUrl);
-          void audio.play();
-        }
-      } catch (err) {
-        logger.error('语音播报失败', err);
-      }
-    },
-    [],
-  );
 
   const addSchedulesFromAI = useCallback(
     async (events: Array<{
@@ -247,7 +224,7 @@ export const useXiaoxunChat = () => {
         const hasMatchedItems =
           (res.matchedItems && res.matchedItems.length > 0) || !!res.matchedItem;
 
-        if (hasMatchedItems) {
+        if (hasMatchedItems && res.intent === 'daily_items') {
           const rawList =
             res.matchedItems && res.matchedItems.length > 0
               ? res.matchedItems
@@ -280,15 +257,11 @@ export const useXiaoxunChat = () => {
           const listMsg: ChatMessage = {
             id: generateId(),
             role: 'assistant',
-            content: '',
+            content: res.reply || '',
             type: 'item-list',
             payload: { items: list } as ItemListPayload,
           };
           setMessages((prev: ChatMessage[]) => [...prev, listMsg]);
-
-          if (list[0]) {
-            void broadcastItemVoice(list[0].item);
-          }
         }
 
         if (res.intent === 'register_item' && res.registerItemName && currentPendingItem) {
@@ -304,6 +277,24 @@ export const useXiaoxunChat = () => {
 
         if (res.intent === 'schedule_add' && res.scheduleEvents?.length) {
           void addSchedulesFromAI(res.scheduleEvents);
+        }
+
+        if (res.intent === 'name_item' && res.namedItem) {
+          try {
+            const updatedRes = await echofind.items.list({ pageSize: 20 });
+            setItems(updatedRes.items);
+            void refreshPendingItems();
+          } catch (err) {
+            logger.error('命名后刷新物品列表失败', err);
+          }
+        }
+
+        if (res.intent === 'schedule_delete' && res.deletedSchedules?.length) {
+          window.dispatchEvent(new CustomEvent('echofind-schedule-updated'));
+        }
+
+        if (res.intent === 'schedule_update' && res.updatedSchedule) {
+          window.dispatchEvent(new CustomEvent('echofind-schedule-updated'));
         }
 
         if (res.intent === 'schedule_query') {
@@ -349,7 +340,7 @@ export const useXiaoxunChat = () => {
         scrollToBottom();
       }
     },
-    [items, broadcastItemVoice, scrollToBottom, currentPendingItem, addSchedulesFromAI],
+    [items, scrollToBottom, currentPendingItem, addSchedulesFromAI],
   );
 
   const sendMessage = useCallback(
@@ -551,7 +542,7 @@ export const useXiaoxunChat = () => {
           {
             id: generateId(),
             role: 'assistant',
-            content: '暂时没有待录入的贴纸哦，先让贴纸靠近一下阻隔盒吧～',
+            content: '暂时没有待录入的贴纸哦，先让贴纸靠近一下基站吧～',
             type: 'text',
           },
         ]);
@@ -596,15 +587,9 @@ export const useXiaoxunChat = () => {
   );
 
   const recognizeVoice = useCallback(
-    async (audioFile: File): Promise<{ text: string }> => {
-      const result = await capabilityClient
-        .load(VOICE_PLUGIN_ID)
-        .call<EchofindVoiceToTextOneOutput>('speechToText', {
-          audio_url: [audioFile],
-          language: 'zh',
-        });
-      const text = result.text ?? '';
-      return { text };
+    async (base64Wav: string, len: number): Promise<{ text: string }> => {
+      const result = await echofind.voice.asr(base64Wav, len);
+      return { text: result.text ?? '' };
     },
     [],
   );

@@ -187,11 +187,12 @@ export interface AIChatResponse {
   reply: string;
   matchedItem?: { id: string; name: string; isStored: boolean; location: string };
   matchedItems?: Array<{ id: string; name: string; reason: string; isStored: boolean; signalStrength: number; location: string }>;
-  intent?: 'find_items' | 'register_item' | 'name_item' | 'chat' | 'daily_items' | 'schedule_add' | 'schedule_query' | 'schedule_delete' | 'carry_remind';
+  intent?: 'find_items' | 'register_item' | 'name_item' | 'chat' | 'daily_items' | 'schedule_add' | 'schedule_query' | 'schedule_delete' | 'schedule_update' | 'carry_remind';
   registerItemName?: string;
   namedItem?: { id: string; name: string; isStored: boolean; location: string };
   scheduleEvents?: Array<{ title: string; date: string; startTime: string; endTime: string; location: string; tag: ScheduleTag }>;
   deletedSchedules?: Array<{ id: string; title: string; date: string; startTime: string }>;
+  updatedSchedule?: { id: string; title: string; date: string; startTime: string; endTime: string; location: string; tag: ScheduleTag };
   scheduleRecommendations?: Array<{ id: string; name: string; isStored: boolean; location: string; reason: string }>;
   temporaryCarryItems?: string[];
 }

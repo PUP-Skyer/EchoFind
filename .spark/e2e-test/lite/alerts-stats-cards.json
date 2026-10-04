@@ -1,0 +1,1 @@
+{"cases":[{"id":1,"priority":"p0","description":"打开告警页/alerts，顶部可见三张并排的分类统计卡片保留丢弃回收"},{"id":2,"priority":"p1","description":"每张卡片底部有对应色系的进度条展示占比"},{"id":3,"priority":"p2","description":"卡片数字加载时有从0增长到目标值的滚动动画效果"}]}

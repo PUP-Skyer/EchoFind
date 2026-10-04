@@ -1,0 +1,1 @@
+{"cases":[{"id":1,"priority":"p0","description":"打开概览页，点击左下角用户头像条，确认弹出侧边抽屉"},{"id":2,"priority":"p0","description":"抽屉中切换到桌宠Tab，可见宠物形象、亲密度进度和喂食玩耍按钮"},{"id":3,"priority":"p1","description":"桌宠Tab中可见宠物选择网格，能看到多个宠物形象"},{"id":4,"priority":"p1","description":"抽屉中切换到设置Tab，展开显示分组可见亮度滑条"},{"id":5,"priority":"p2","description":"抽屉内三个Tab可自由切换，无需二级页面跳转"}]}

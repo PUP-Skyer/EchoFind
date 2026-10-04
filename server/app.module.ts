@@ -13,6 +13,7 @@ import { FeishuModule } from './modules/feishu/feishu.module';
 import { AIModule } from './modules/ai/ai.module';
 import { PetModule } from './modules/pet/pet.module';
 import { SchedulesModule } from './modules/schedules/schedules.module';
+import { VoiceModule } from './modules/voice/voice.module';
 
 @Module({
   imports: [
@@ -29,6 +30,7 @@ import { SchedulesModule } from './modules/schedules/schedules.module';
     AIModule,
     PetModule,
     SchedulesModule,
+    VoiceModule,
     // ====== @route-section: business-modules END ======
 
     // ⚠️ @route-order: last

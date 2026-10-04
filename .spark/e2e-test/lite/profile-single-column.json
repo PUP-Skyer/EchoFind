@@ -1,0 +1,1 @@
+{"cases":[{"id":1,"priority":"p0","description":"打开/profile页面，页面无左侧竖排导航栏，为单列居中布局"},{"id":2,"priority":"p0","description":"页面从上到下依次展示：用户信息、桌宠乐园两大区块，不再分左右两栏"},{"id":3,"priority":"p1","description":"桌宠乐园区块内可见宠物形象、亲密度进度条和喂食/玩耍按钮"}]}

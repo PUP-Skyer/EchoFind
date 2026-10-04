@@ -405,7 +405,7 @@ ${itemsText}
             id: found?.id ?? '',
             name: rec.name,
             isStored,
-            location: isStored ? '阻隔盒(已存入)' : '附近区域',
+            location: isStored ? (found?.location || '储物柜') : '附近区域',
             reason: rec.reason,
           };
         });

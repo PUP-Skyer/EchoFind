@@ -315,3 +315,32 @@ export const schedules = {
     return response.data;
   },
 };
+
+export const voice = {
+  async asr(speech: string, len: number): Promise<{ text: string }> {
+    const response = await axiosForBackend.post('/api/voice/asr', { speech, len });
+    return response.data;
+  },
+  async ttsUrl(text: string): Promise<string> {
+    const base = (axiosForBackend.defaults.baseURL ?? '').replace(/\/$/, '');
+    const csrfToken = (() => {
+      const match = document.cookie.match(/(?:^|; )suda-csrf-token=([^;]*)/);
+      return match ? decodeURIComponent(match[1]) : '';
+    })();
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (csrfToken) {
+      headers['X-Suda-Csrf-Token'] = csrfToken;
+    }
+    const response = await fetch(`${base}/api/voice/tts`, {
+      method: 'POST',
+      headers,
+      credentials: 'include',
+      body: JSON.stringify({ text }),
+    });
+    if (!response.ok) {
+      throw new Error(`TTS HTTP ${response.status}`);
+    }
+    const blob = await response.blob();
+    return URL.createObjectURL(blob);
+  },
+};

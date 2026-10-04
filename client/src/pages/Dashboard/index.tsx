@@ -180,7 +180,7 @@ const Dashboard: React.FC = () => {
     info: '#74B9FF',
   };
 
-  if (loading) {
+  if (loading && !stats) {
     return (
       <div>
         <h1 className="text-2xl font-semibold text-[#2D3436]">概览</h1>

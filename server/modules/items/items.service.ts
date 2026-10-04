@@ -91,16 +91,19 @@ export class ItemsService {
       return 'keep';
     };
 
+    const isStored = getBool(storedRaw);
+    const rawLocation = this.resolveLocation(locationRaw);
+
     return {
       id: getText(idRaw),
       name: getText(nameRaw),
       signalStrength: signalRaw != null ? Number(signalRaw) : 0,
       reportTime: getTime(timeRaw),
-      isStored: getBool(storedRaw),
+      isStored,
       imageUrl: attachments?.[0]?.url ?? '',
       deviceId: getText(deviceRaw),
       disposition: getDisposition(dispositionRaw),
-      location: this.resolveLocation(locationRaw),
+      location: isStored ? rawLocation : '',
     };
   }
 
@@ -155,8 +158,6 @@ export class ItemsService {
 
     const validItems = allItems.filter((it: Item) => {
       if (!it.id || it.id.trim() === '') return false;
-      if (it.signalStrength <= 0) return false;
-      if (!it.reportTime || it.reportTime.startsWith('1970') || it.reportTime.startsWith('0000')) return false;
       return true;
     });
 
@@ -167,20 +168,11 @@ export class ItemsService {
         dedupMap.set(it.id, { ...it });
         continue;
       }
-      const merged = { ...existing };
       const itTime = new Date(it.reportTime).getTime();
       const exTime = new Date(existing.reportTime).getTime();
       if (itTime > exTime) {
-        merged.reportTime = it.reportTime;
-        merged.signalStrength = it.signalStrength;
-        merged.location = it.location || existing.location;
-        merged.isStored = it.isStored;
-        merged.deviceId = it.deviceId || existing.deviceId;
-        merged.imageUrl = it.imageUrl || existing.imageUrl;
+        dedupMap.set(it.id, { ...it });
       }
-      if (!merged.name && it.name) merged.name = it.name;
-      if (!merged.imageUrl && it.imageUrl) merged.imageUrl = it.imageUrl;
-      dedupMap.set(it.id, merged);
     }
 
     const deduped = Array.from(dedupMap.values());
@@ -222,8 +214,6 @@ export class ItemsService {
 
     const validItems = allItems.filter((it: Item) => {
       if (!it.id || it.id.trim() === '') return false;
-      if (it.signalStrength <= 0) return false;
-      if (!it.reportTime || it.reportTime.startsWith('1970') || it.reportTime.startsWith('0000')) return false;
       return true;
     });
 
@@ -234,20 +224,11 @@ export class ItemsService {
         dedupMap.set(it.id, { ...it });
         continue;
       }
-      const merged = { ...existing };
       const itTime = new Date(it.reportTime).getTime();
       const exTime = new Date(existing.reportTime).getTime();
       if (itTime > exTime) {
-        merged.reportTime = it.reportTime;
-        merged.signalStrength = it.signalStrength;
-        merged.location = it.location || existing.location;
-        merged.isStored = it.isStored;
-        merged.deviceId = it.deviceId || existing.deviceId;
-        merged.imageUrl = it.imageUrl || existing.imageUrl;
+        dedupMap.set(it.id, { ...it });
       }
-      if (!merged.name && it.name) merged.name = it.name;
-      if (!merged.imageUrl && it.imageUrl) merged.imageUrl = it.imageUrl;
-      dedupMap.set(it.id, merged);
     }
 
     const deduped = Array.from(dedupMap.values());
@@ -316,6 +297,14 @@ export class ItemsService {
       '物品名称': name as never,
       '是否存入': (isStored ? 1 : 0) as never,
     };
+
+    if (name && name.trim()) {
+      void this.syncNameAcrossSameId(id, name).catch((syncErr: unknown) => {
+        const msg = syncErr instanceof Error ? syncErr.message : String(syncErr);
+        this.logger.warn(`同编号名称同步失败 [${id}]: ${msg}`);
+      });
+    }
+
     return this.fieldsToItem(merged);
   }
 
@@ -739,10 +728,9 @@ export class ItemsService {
       byId.set(id, list);
     }
 
-    const toUpdate: Array<{ record_id: string; fields: Record<string, unknown> }> = [];
     const toDelete: string[] = [];
 
-    for (const [id, recs] of byId) {
+    for (const [, recs] of byId) {
       if (recs.length <= 1) continue;
       const getTime = (fields: BitableItemFields): number => {
         const f = fields as unknown as Record<string, unknown>;
@@ -754,77 +742,16 @@ export class ItemsService {
         }
         return 0;
       };
-      const getText = (fields: BitableItemFields, key: string): string => {
-        const f = fields as unknown as Record<string, unknown>;
-        const v = f[key];
-        if (Array.isArray(v)) return v.length > 0 ? String(v[0] ?? '') : '';
-        if (v == null) return '';
-        return String(v);
-      };
-      const getBool = (fields: BitableItemFields, key: string): boolean => {
-        const f = fields as unknown as Record<string, unknown>;
-        const v = f[key];
-        if (typeof v === 'boolean') return v;
-        if (typeof v === 'number') return v !== 0;
-        if (typeof v === 'string') return v === '1' || v.toLowerCase() === 'true';
-        return Boolean(v);
-      };
 
       const sorted = [...recs].sort(
         (a: { fields: BitableItemFields }, b: { fields: BitableItemFields }) => getTime(b.fields) - getTime(a.fields),
       );
-      const latest = sorted[0];
       const rest = sorted.slice(1);
 
-      const latestItem = this.fieldsToItem(latest.fields);
-      let mergedName = latestItem.name;
-      let mergedImage = latestItem.imageUrl;
-      let mergedIsStored = latestItem.isStored;
-      let mergedLocation = latestItem.location;
-
-      for (const rec of rest) {
-        const it = this.fieldsToItem(rec.fields);
-        if (!mergedName && it.name) mergedName = it.name;
-        if (!mergedImage && it.imageUrl) mergedImage = it.imageUrl;
-        if (!mergedLocation && it.location) mergedLocation = it.location;
-        if (!mergedIsStored && it.isStored) mergedIsStored = it.isStored;
-      }
-
-      const mergedFields: Record<string, unknown> = {};
-      if (mergedName !== latestItem.name) mergedFields['物品名称'] = mergedName;
-      if (mergedImage && mergedImage !== latestItem.imageUrl) {
-        mergedFields['物品图片'] = [{ url: mergedImage }];
-      }
-
-      const latestStored = getBool(latest.fields, '是否存入');
-      if (mergedIsStored !== latestStored) {
-        mergedFields['是否存入'] = mergedIsStored ? 1 : 0;
-      }
-
-      const latestLoc = getText(latest.fields, '存入位置') || getText(latest.fields, '位置') || getText(latest.fields, '放置位置');
-      if (mergedLocation && this.resolveLocation(latestLoc) !== mergedLocation) {
-        mergedFields['存入位置'] = mergedLocation;
-      }
-
-      if (Object.keys(mergedFields).length > 0) {
-        toUpdate.push({ record_id: latest.record_id, fields: mergedFields });
-      }
       for (const rec of rest) toDelete.push(rec.record_id);
     }
 
-    let mergedCount = toUpdate.length;
     let deletedCount = 0;
-
-    if (toUpdate.length > 0) {
-      const res = await this.client.bitable.appTableRecord.batchUpdate({
-        path: { app_token: this.appToken, table_id: this.tableId },
-        data: { records: toUpdate },
-      });
-      if (res.code !== 0) {
-        this.logger.error(`去重更新失败 [${res.code}]: ${res.msg}`);
-        mergedCount = 0;
-      }
-    }
 
     if (toDelete.length > 0) {
       const batchSize = 500;
@@ -845,7 +772,7 @@ export class ItemsService {
     return {
       totalRecords: allRecords.length,
       uniqueItems: byId.size,
-      merged: mergedCount,
+      merged: 0,
       deleted: deletedCount,
     };
   }

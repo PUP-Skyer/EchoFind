@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import ReactECharts from 'echarts-for-react';
 import type { EChartsOption } from 'echarts';
 import {
@@ -7,6 +7,7 @@ import {
   Signal,
   AlertTriangle,
 } from 'lucide-react';
+import { usePoll } from '@client/src/hooks/use-poll';
 import { echofind } from '@client/src/api';
 import type {
   StatsOverview,
@@ -86,15 +87,20 @@ const Statistics: React.FC = () => {
   const [overview, setOverview] = useState<StatsOverview | null>(null);
   const [trendDays, setTrendDays] = useState<number>(7);
   const [trendData, setTrendData] = useState<TrendDataPoint[]>([]);
+  const mountedRef = useRef<boolean>(true);
+
+  useEffect(() => {
+    return (): void => { mountedRef.current = false; };
+  }, []);
 
   useEffect(() => {
     const fetchOverview = async (): Promise<void> => {
       setLoading(true);
       try {
         const data = await echofind.stats.overview();
-        setOverview(data);
+        if (mountedRef.current) setOverview(data);
       } finally {
-        setLoading(false);
+        if (mountedRef.current) setLoading(false);
       }
     };
     void fetchOverview();
@@ -103,10 +109,29 @@ const Statistics: React.FC = () => {
   useEffect(() => {
     const fetchTrend = async (): Promise<void> => {
       const data = await echofind.stats.trend(trendDays);
-      setTrendData(data);
+      if (mountedRef.current) setTrendData(data);
     };
     void fetchTrend();
   }, [trendDays]);
+
+  usePoll(
+    async (): Promise<void> => {
+      try {
+        const [ov, trend] = await Promise.all([
+          echofind.stats.overview(),
+          echofind.stats.trend(trendDays),
+        ]);
+        if (mountedRef.current) {
+          setOverview(ov);
+          setTrendData(trend);
+        }
+      } catch {
+        // poll 失败静默，下次再试
+      }
+    },
+    [trendDays],
+    { intervalMs: 8000 },
+  );
 
   // 计算平均信号强度
   const avgSignalStrength = useMemo((): number => {

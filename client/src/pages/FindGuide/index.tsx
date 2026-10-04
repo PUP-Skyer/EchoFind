@@ -12,13 +12,9 @@ import {
   Loader2,
 } from 'lucide-react';
 import { logger } from '@lark-apaas/client-toolkit/logger';
-import { capabilityClient } from '@lark-apaas/client-toolkit';
-import type { EchofindXiaoxunSpeechBroadcastOneOutput } from '@shared/plugin-types';
 import { echofind } from '@client/src/api';
 import { Button } from '@client/src/components/ui/button';
 import { toast } from 'sonner';
-
-const TTS_PLUGIN_ID = 'echofind_xiaoxun_speech_broadcast_1';
 
 type DistanceLevel = 'far' | 'nearby' | 'close' | 'here';
 type Trend = 'getting_closer' | 'getting_farther' | 'stable' | 'unknown';
@@ -168,16 +164,12 @@ const FindGuidePage: React.FC = () => {
     if (now - lastTtsTimeRef.current < 4000) return;
     lastTtsTimeRef.current = now;
     try {
-      const result = await capabilityClient
-        .load(TTS_PLUGIN_ID)
-        .call<EchofindXiaoxunSpeechBroadcastOneOutput>('speechSynthesis', {
-          item_info: '',
-          item_location: text,
-        });
-      if (result.audioUrl) {
-        const audio = new Audio(result.audioUrl);
-        void audio.play();
-      }
+      const url = await echofind.voice.ttsUrl(text);
+      const audio = new Audio(url);
+      void audio.play();
+      audio.onended = (): void => {
+        try { URL.revokeObjectURL(url); } catch { /* ignore */ }
+      };
     } catch (err: unknown) {
       logger.error('语音播报失败', err);
     }

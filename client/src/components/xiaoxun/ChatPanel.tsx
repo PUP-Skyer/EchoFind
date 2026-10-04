@@ -29,6 +29,7 @@ import { toast } from 'sonner';
 import Image from '@client/src/components/ui/image';
 import ItemIcon from '@client/src/components/ui/item-icon';
 import { Markdown } from '@client/src/components/ui/markdown';
+import { echofind } from '@client/src/api';
 import { PET_IMAGE_MAP, PET_NAME_MAP, DEFAULT_PET } from './petData';
 import PetAvatar from './PetAvatar';
 import type { PetType } from '@shared/api.interface';
@@ -76,7 +77,7 @@ interface ChatPanelProps {
   onShowSchedule: () => void;
   onAddSchedule: (item: Omit<ScheduleItem, 'type'> & { type?: ScheduleItem['type'] }) => void;
   onRecognizePhoto: (file: File) => Promise<Item | null>;
-  onRecognizeVoice: (audioFile: File) => Promise<{ text: string }>;
+  onRecognizeVoice: (base64Wav: string, len: number) => Promise<{ text: string }>;
   onSearchItems: (keyword: string) => Item[];
   onItemClick: (item: Item) => void;
   onFindItem?: (item: Item) => void;
@@ -251,7 +252,7 @@ const ItemListCard: React.FC<{
               {isOpen && (
                 <div className="px-2 pb-2 pt-0 space-y-1.5 border-t border-[#F5F6FA]">
                    <div className="text-[11px] text-[#636E72] leading-relaxed">
-                    {entry.reason || (entry.item.isStored ? '已存入阻隔盒' : '未存入')}
+                     {entry.reason || (entry.item.isStored ? '已存入' : '未存入')}
                   </div>
                   <div className="flex items-center justify-between text-[10px] text-[#B2BEC3]">
                     <span className="font-mono">{entry.item.deviceId}</span>
@@ -321,7 +322,7 @@ const ItemListCard: React.FC<{
                   {entry.item.location}
                 </span>
               )}
-              {entry.reason || (entry.item.isStored ? '已存入阻隔盒' : '未存入')}
+                     {entry.reason || (entry.item.isStored ? '已存入' : '未存入')}
             </div>
           </div>
           <div className="flex-shrink-0 flex flex-col items-end gap-1">
@@ -546,7 +547,7 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
       return false;
     }
   });
-  const recognitionRef = useRef<any>(null);
+  const recognitionRef = useRef<MediaRecorder | null>(null);
   const isRecognizingRef = useRef<boolean>(false);
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
@@ -554,7 +555,7 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const recordingTimerRef = useRef<number | null>(null);
-  const utteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
   const broadcastedMsgIdsRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
@@ -604,13 +605,14 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
     } catch {
       // ignore
     }
-    if (!next && utteranceRef.current) {
+    if (!next && audioRef.current) {
       try {
-        window.speechSynthesis.cancel();
+        audioRef.current.pause();
+        audioRef.current.src = '';
       } catch {
         // ignore
       }
-      utteranceRef.current = null;
+      audioRef.current = null;
     }
   };
 
@@ -630,22 +632,27 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
       .replace(/\n{3,}/g, '\n\n');
   };
 
-  const speakText = useCallback((text: string, msgId: string): void => {
+  const speakText = useCallback(async (text: string, msgId: string): Promise<void> => {
     if (!voiceBroadcast) return;
     if (!text || !text.trim()) return;
     if (broadcastedMsgIdsRef.current.has(msgId)) return;
-    if (typeof window === 'undefined' || !window.speechSynthesis) return;
     broadcastedMsgIdsRef.current.add(msgId);
     const cleanText = stripMarkdown(text);
     try {
-      window.speechSynthesis.cancel();
-      const utter = new SpeechSynthesisUtterance(cleanText);
-      utter.lang = 'zh-CN';
-      utter.rate = 1.0;
-      utter.pitch = 1.1;
-      utteranceRef.current = utter;
-      window.speechSynthesis.speak(utter);
-    } catch (err) {
+      if (audioRef.current) {
+        audioRef.current.pause();
+        audioRef.current.src = '';
+      }
+      const url = await echofind.voice.ttsUrl(cleanText);
+      const audio = new Audio(url);
+      audioRef.current = audio;
+      audio.play().catch((err: unknown) => {
+        logger.warn('TTS 播放失败', err);
+      });
+      audio.onended = (): void => {
+        try { URL.revokeObjectURL(url); } catch { /* ignore */ }
+      };
+    } catch (err: unknown) {
       logger.warn('TTS 语音播报失败', err);
     }
   }, [voiceBroadcast]);
@@ -654,7 +661,7 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
     if (!voiceBroadcast) return;
     const lastMsg = messages[messages.length - 1];
     if (!lastMsg || lastMsg.role !== 'assistant') return;
-    if (lastMsg.type !== 'text') return;
+    if (lastMsg.type !== 'text' && lastMsg.type !== 'item-list') return;
     if (lastMsg.streaming) return;
     if (!lastMsg.content || !lastMsg.content.trim()) return;
     speakText(lastMsg.content, lastMsg.id);
@@ -663,7 +670,8 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
   useEffect(() => {
     return () => {
       try {
-        window.speechSynthesis?.cancel();
+        audioRef.current?.pause();
+        audioRef.current = null;
       } catch {
         // ignore
       }
@@ -724,28 +732,18 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
   };
 
   const handleVoiceClick = (): void => {
-    const SpeechRecognition =
-      (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-
-    if (isRecording && recognitionRef.current) {
-      try {
-        recognitionRef.current.stop();
-      } catch {
-        // ignore
-      }
-      recognitionRef.current = null;
-      isRecognizingRef.current = false;
-      if (recordingTimerRef.current) {
-        window.clearInterval(recordingTimerRef.current);
-        recordingTimerRef.current = null;
+    if (isRecording || isRecognizing) {
+      if (recognitionRef.current && isRecording) {
+        isRecognizingRef.current = false;
+        try {
+          recognitionRef.current.stop();
+        } catch {
+          // ignore
+        }
+        return;
       }
       setIsRecording(false);
       setIsRecognizing(false);
-      return;
-    }
-
-    if (!SpeechRecognition) {
-      toast.error('当前浏览器不支持实时语音识别，请使用 Chrome 或 Edge 浏览器');
       return;
     }
 
@@ -753,99 +751,97 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
       toast.error('语音识别需要 HTTPS 安全环境，请在 HTTPS 页面或 localhost 下使用');
       return;
     }
-
-    try {
-      const recognition = new SpeechRecognition();
-      recognition.lang = 'zh-CN';
-      recognition.continuous = true;
-      recognition.interimResults = true;
-      recognitionRef.current = recognition;
-
-      let finalText = '';
-      let interimText = '';
-
-      recognition.onresult = (event: any): void => {
-        interimText = '';
-        for (let i = event.resultIndex; i < event.results.length; i += 1) {
-          const transcript = event.results[i][0].transcript;
-          if (event.results[i].isFinal) {
-            finalText += transcript;
-          } else {
-            interimText += transcript;
-          }
-        }
-        const fullText = (finalText + interimText).trim();
-        if (fullText) {
-          setInputValue(fullText);
-        }
-      };
-
-      recognition.onerror = (event: any): void => {
-        logger.error('语音识别错误', event.error);
-        const err = event.error;
-        if (err === 'not-allowed' || err === 'service-not-allowed') {
-          toast.error('麦克风权限被拒绝，请在浏览器设置中允许使用麦克风');
-        } else if (err === 'no-speech') {
-          toast.warning('未检测到语音内容，请重试');
-        } else if (err === 'audio-capture') {
-          toast.error('未检测到麦克风设备，请检查硬件连接');
-        } else if (err === 'network') {
-          toast.error('语音识别网络错误，请检查网络连接');
-        } else {
-          toast.error(`语音识别错误: ${err}`);
-        }
-        isRecognizingRef.current = false;
-        setIsRecording(false);
-        setIsRecognizing(false);
-        if (recordingTimerRef.current) {
-          window.clearInterval(recordingTimerRef.current);
-          recordingTimerRef.current = null;
-        }
-        recognitionRef.current = null;
-      };
-
-      recognition.onend = (): void => {
-        if (!isRecognizingRef.current) return;
-        const finalTrim = finalText.trim();
-        if (finalTrim) {
-          setInputValue(finalTrim);
-          setTimeout(() => {
-            inputRef.current?.focus();
-          }, 50);
-        } else if (!interimText.trim()) {
-          toast.warning('未识别到语音内容，请重试');
-        }
-        isRecognizingRef.current = false;
-        setIsRecording(false);
-        setIsRecognizing(false);
-        if (recordingTimerRef.current) {
-          window.clearInterval(recordingTimerRef.current);
-          recordingTimerRef.current = null;
-        }
-        recognitionRef.current = null;
-      };
-
-      setRecordingTime(0);
-      recordingTimerRef.current = window.setInterval(() => {
-        setRecordingTime((prev: number) => prev + 1);
-      }, 1000);
-
-      isRecognizingRef.current = true;
-      setIsRecognizing(true);
-      recognition.start();
-      setIsRecording(true);
-    } catch (err) {
-      logger.error('启动语音识别失败', err);
-      const msg = err instanceof Error ? err.message : String(err);
-      toast.error(`启动语音识别失败: ${msg}`);
-      isRecognizingRef.current = false;
-      setIsRecording(false);
-      setIsRecognizing(false);
-      if (recordingTimerRef.current) {
-        window.clearInterval(recordingTimerRef.current);
-        recordingTimerRef.current = null;
-      }
+    if (typeof navigator === 'undefined' || !navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      toast.error('当前浏览器不支持录音功能，请使用 Chrome 或 Edge 浏览器');
+      return;
     }
+
+    setRecordingTime(0);
+    setIsRecording(true);
+    audioChunksRef.current = [];
+
+    const startRecording = async (): Promise<void> => {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        const mr = new MediaRecorder(stream);
+        recognitionRef.current = mr;
+        mr.ondataavailable = (e: BlobEvent): void => {
+          if (e.data.size > 0) {
+            audioChunksRef.current.push(e.data);
+          }
+        };
+        mr.onstop = async (): Promise<void> => {
+          stream.getTracks().forEach((t: MediaStreamTrack): void => t.stop());
+          setIsRecording(false);
+          setIsRecognizing(true);
+          isRecognizingRef.current = true;
+          try {
+            const blob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+            const arrayBuf = await blob.arrayBuffer();
+            const audioCtx = new AudioContext({ sampleRate: 16000 });
+            const audioBuf = await audioCtx.decodeAudioData(arrayBuf.slice(0));
+            const offlineCtx = new OfflineAudioContext(1, audioBuf.duration * 16000, 16000);
+            const source = offlineCtx.createBufferSource();
+            source.buffer = audioBuf;
+            source.connect(offlineCtx.destination);
+            source.start();
+            const resampled = await offlineCtx.startRendering();
+            const wavBlob = audioContextToWav(resampled);
+            const wavBuffer = await wavBlob.arrayBuffer();
+            const bytes = new Uint8Array(wavBuffer);
+            let binary = '';
+            for (let i = 0; i < bytes.byteLength; i += 1) {
+              binary += String.fromCharCode(bytes[i]);
+            }
+            const base64 = window.btoa(binary);
+            const result = await onRecognizeVoice(base64, wavBuffer.byteLength);
+            const text = (result.text ?? '').trim();
+            if (isRecognizingRef.current) {
+              if (text) {
+                setInputValue(text);
+              } else {
+                toast.warning('未识别到语音内容，请重试');
+              }
+            }
+          } catch (err: unknown) {
+            logger.error('语音识别失败', err);
+            const msg = err instanceof Error ? err.message : String(err);
+            if (msg.includes('麦克风') || msg.includes('NotAllowed') || msg.includes('Permission')) {
+              toast.error('麦克风权限被拒绝，请在浏览器设置中允许使用麦克风');
+            } else {
+              toast.error(`语音识别失败: ${msg}`);
+            }
+          } finally {
+            isRecognizingRef.current = false;
+            setIsRecognizing(false);
+            if (recordingTimerRef.current) {
+              window.clearInterval(recordingTimerRef.current);
+              recordingTimerRef.current = null;
+            }
+            recognitionRef.current = null;
+          }
+        };
+        mr.start();
+        recordingTimerRef.current = window.setInterval(() => {
+          setRecordingTime((prev: number) => prev + 1);
+        }, 1000);
+        isRecognizingRef.current = true;
+      } catch (err: unknown) {
+        logger.error('启动录音失败', err);
+        const msg = err instanceof Error ? err.message : String(err);
+        if (msg.includes('NotAllowed') || msg.includes('Permission')) {
+          toast.error('麦克风权限被拒绝，请在浏览器设置中允许使用麦克风');
+        } else if (msg.includes('NotFound') || msg.includes('Devices')) {
+          toast.error('未检测到麦克风设备，请检查硬件连接');
+        } else {
+          toast.error(`启动录音失败: ${msg}`);
+        }
+        setIsRecording(false);
+        setIsRecognizing(false);
+      }
+    };
+
+    void startRecording();
   };
 
   const handlePhotoClick = (): void => {
@@ -960,7 +956,7 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
               key={msg.id}
               className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
             >
-              {msg.role === 'assistant' && msg.type !== 'text' && (
+              {msg.role === 'assistant' && (
                 <div className="flex-shrink-0 mr-2 mt-1">
                   <PetAvatar petType={petType ?? DEFAULT_PET} size={20} />
                 </div>
@@ -995,60 +991,41 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
                   />
                 ) : msg.type === 'item-list' ? (
                   <div>
-                    {msg.content && <div className="mb-2">{msg.content}</div>}
-                    <button
-                      onClick={(e: React.MouseEvent): void => {
-                        e.stopPropagation();
-                        setShowItemListPopup(true);
-                      }}
-                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-[#6C5CE710] text-[#6C5CE7] text-xs font-medium hover:bg-[#6C5CE720] transition-colors border border-[#6C5CE720]"
-                    >
-                      <Package size={12} />
-                      物品清单
-                      <span className="bg-white/60 px-1.5 rounded-full text-[10px] font-semibold">
-                        {(msg.payload as { items: Array<{ item: Item }> }).items.length}
-                      </span>
-                      <ChevronRight size={12} />
-                    </button>
-                    {showItemListPopup && (
-                      <div className="fixed inset-0 z-[60] flex items-center justify-center" onClick={() => setShowItemListPopup(false)}>
-                        <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" />
+                    {msg.content && <div className="mb-3">{msg.content}</div>}
+                    <div className="flex flex-wrap gap-2">
+                      {(msg.payload as { items: Array<{ item: Item; status: 'stored' | 'not_stored' | 'offline'; reason?: string }> }).items.map((entry, idx) => (
                         <div
-                          className="relative w-[85%] max-w-[320px] max-h-[70vh] bg-white rounded-2xl shadow-2xl flex flex-col overflow-hidden"
-                          onClick={(e: React.MouseEvent): void => { e.stopPropagation(); }}
+                          key={entry.item.id || String(idx)}
+                          className="flex items-center gap-2 px-3 py-2 rounded-xl bg-white/60 backdrop-blur-md border border-white/80 shadow-sm hover:shadow-md transition-shadow"
+                          style={{ backdropFilter: 'blur(12px)', WebkitBackdropFilter: 'blur(12px)' }}
                         >
-                          <div className="flex items-center justify-between px-4 py-3 border-b border-[#DFE6E9]">
-                            <div className="flex items-center gap-2">
-                              <Package size={16} className="text-[#6C5CE7]" />
-                              <span className="text-sm font-semibold text-[#2D3436]">物品清单</span>
-                              <span className="text-[11px] text-[#B2BEC3]">
-                                共 {(msg.payload as { items: Array<{ item: Item }> }).items.length} 件
-                              </span>
+                          <div className="w-6 h-6 rounded-md bg-white/80 overflow-hidden flex-shrink-0">
+                            {entry.item.imageUrl ? (
+                              <Image
+                                src={entry.item.imageUrl}
+                                alt={entry.item.name}
+                                width={24}
+                                height={24}
+                                className="w-full h-full object-cover"
+                              />
+                            ) : (
+                              <ItemIcon name={entry.item.name} className="w-full h-full" size={24} />
+                            )}
+                          </div>
+                          <div className="min-w-0">
+                            <div className="text-xs font-medium text-[#2D3436] truncate">
+                              {entry.item.name}
                             </div>
-                            <button
-                              onClick={() => setShowItemListPopup(false)}
-                              className="p-1 rounded-lg hover:bg-[#F5F6FA] text-[#B2BEC3] transition-colors"
-                            >
-                              <XIcon size={16} />
-                            </button>
+                            {entry.reason && (
+                              <div className="text-[10px] text-[#636E72] truncate">
+                                {entry.reason}
+                              </div>
+                            )}
                           </div>
-                          <div className="flex-1 overflow-y-auto p-3">
-                            <ItemListCard
-                              items={(msg.payload as { items: Array<{ item: Item; status: 'stored' | 'not_stored' | 'offline'; reason?: string }> }).items}
-                              onClick={(item: Item): void => {
-                                setShowItemListPopup(false);
-                                onItemClick(item);
-                              }}
-                              onFind={onFindItem ? (item: Item): void => {
-                                setShowItemListPopup(false);
-                                onFindItem(item);
-                              } : undefined}
-                              compact
-                            />
-                          </div>
+                          <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${statusDotColor(entry.status)}`} />
                         </div>
-                      </div>
-                    )}
+                      ))}
+                    </div>
                   </div>
                 ) : msg.type === 'matched-item-card' ? (
                   <div>
@@ -1068,7 +1045,7 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
                 ) : msg.streaming && !msg.content ? (
                   <TypingDots />
                 ) : (
-                  <Markdown className="text-sm text-[#2D3436] [&>p]:my-1.5 [&>ul]:my-1.5 [&>ol]:my-1.5 [&>h1]:text-base [&>h1]:font-semibold [&>h2]:text-sm [&>h2]:font-semibold [&_strong]:font-semibold [&_hr]:my-3 [&_hr]:border-[#DFE6E9] [&_code]:bg-[#F5F6FA] [&_code]:px-1.5 [&_code]:py-0.5 [&_code]:rounded [&_code]:text-xs">
+                  <Markdown className="text-sm text-[#2D3436] leading-relaxed [&>p]:my-2 [&>p]:leading-7 [&>h1]:text-base [&>h1]:font-semibold [&>h1]:my-3 [&>h1]:text-[#6C5CE7] [&>h2]:text-sm [&>h2]:font-semibold [&>h2]:mt-3 [&>h2]:mb-2 [&_h3]:text-sm [&_h3]:font-semibold [&_h3]:mt-2.5 [&_h3]:mb-1.5 [&>ul]:my-2 [&>ul]:space-y-1.5 [&>ul]:pl-5 [&>ol]:my-2 [&>ol]:space-y-1.5 [&>ol]:pl-5 [&>li]:leading-6 [&_strong]:font-semibold [&_strong]:text-[#2D3436] [&_hr]:my-3 [&_hr]:border-[#DFE6E9] [&_code]:bg-[#F5F6FA] [&_code]:px-1.5 [&_code]:py-0.5 [&_code]:rounded [&_code]:text-xs">
                     {msg.content}
                   </Markdown>
                 )}
@@ -1143,17 +1120,16 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
           )}
 
            <div className="flex items-center gap-2">
-             <button
-               onClick={handleVoiceClick}
-               disabled={isRecognizing}
-               className={`flex-shrink-0 w-9 h-9 rounded-full flex items-center justify-center transition-all relative ${
-                 isRecording
-                   ? 'bg-[#E17055] text-white animate-pulse'
-                   : isRecognizing
-                   ? 'bg-[#6C5CE7] text-white'
-                   : 'bg-[#F5F6FA] text-[#636E72] hover:bg-[#6C5CE710] hover:text-[#6C5CE7]'
-               } disabled:opacity-50 disabled:cursor-not-allowed`}
-               title={isRecognizing ? '识别中...' : isRecording ? '停止录音' : '语音输入'}
+              <button
+                onClick={handleVoiceClick}
+                className={`flex-shrink-0 w-9 h-9 rounded-full flex items-center justify-center transition-all relative ${
+                  isRecording
+                    ? 'bg-[#E17055] text-white animate-pulse'
+                    : isRecognizing
+                    ? 'bg-[#6C5CE7] text-white'
+                    : 'bg-[#F5F6FA] text-[#636E72] hover:bg-[#6C5CE710] hover:text-[#6C5CE7]'
+                }`}
+                title={isRecording ? '停止录音' : isRecognizing ? '识别中...' : '语音输入'}
              >
                 <Mic size={16} />
                 {isRecording && (

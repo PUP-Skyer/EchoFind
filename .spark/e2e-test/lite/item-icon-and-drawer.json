@@ -1,0 +1,1 @@
+{"cases":[{"id":1,"priority":"p0","description":"打开概览页，确认页面正常渲染且左侧导航栏存在"},{"id":2,"priority":"p0","description":"打开物品管理页，确认列表中物品图标以emoji卡通形式展示，无裂图"},{"id":3,"priority":"p1","description":"点击左侧底部用户头像条，弹出左侧抽屉并显示用户信息卡"},{"id":4,"priority":"p1","description":"抽屉中展开'显示'设置分组，可见亮度滑条和字体大小选项"},{"id":5,"priority":"p2","description":"抽屉中展开'声音'设置分组，可见各桌宠声音开关和录音按钮"}]}

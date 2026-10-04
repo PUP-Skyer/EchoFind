@@ -87,8 +87,8 @@ const Items: React.FC = () => {
 
   const debouncedSearch = useMemo(() => search, [search]);
 
-  const fetchItems = async (): Promise<void> => {
-    setLoading(true);
+  const fetchItems = async (isBackground = false): Promise<void> => {
+    if (!isBackground) setLoading(true);
     try {
       const isStored =
         isStoredFilter === 'all'
@@ -109,7 +109,7 @@ const Items: React.FC = () => {
       setItems([]);
       setTotal(0);
     } finally {
-      setLoading(false);
+      if (!isBackground) setLoading(false);
     }
   };
 
@@ -125,7 +125,7 @@ const Items: React.FC = () => {
   usePoll(
     async (): Promise<void> => {
       if (!initialLoadRef.current) return;
-      await fetchItems();
+      await fetchItems(true);
     },
     [debouncedSearch, isStoredFilter, page],
     { intervalMs: 8000 },
@@ -354,7 +354,7 @@ const Items: React.FC = () => {
 
       {/* 物品列表卡片 */}
       <div className="bg-white rounded-2xl shadow-[0_2px_12px_rgba(0_0_0_0.03)] overflow-hidden">
-        {loading ? (
+        {loading && items.length === 0 ? (
           <div className="p-12 text-center">
             <div className="inline-block w-8 h-8 border-2 border-[#6C5CE7] border-t-transparent rounded-full animate-spin" />
             <p className="mt-3 text-sm text-[#B2BEC3]">数据加载中...</p>
@@ -419,10 +419,10 @@ const Items: React.FC = () => {
                          ) : (
                            <ItemIcon name={item.name} className="w-10 h-10" size={40} />
                          )}
-                        <div>
-                          <div className="text-sm font-medium text-[#2D3436]">
-                            {item.name}
-                          </div>
+                          <div>
+                           <div className="text-sm font-medium text-[#2D3436]">
+                             {item.name || <span className="text-[#B2BEC3] italic">待命名</span>}
+                           </div>
                           <div className="text-xs text-[#B2BEC3]">
                             {item.id}
                           </div>
@@ -873,7 +873,7 @@ const Items: React.FC = () => {
                  )}
                 <div>
                   <div className="text-sm font-medium text-[#2D3436]">
-                    {currentItem.name}
+                    {currentItem.name || <span className="text-[#B2BEC3] italic">待命名</span>}
                   </div>
                   <div className="text-xs text-[#B2BEC3]">
                     {currentItem.id}

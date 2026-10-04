@@ -1,0 +1,1 @@
+{"cases":[{"id":1,"priority":"p0","description":"点击左下角头像弹出窄小浮层菜单含三个菜单项"},{"id":2,"priority":"p0","description":"点击用户信息后主区显示用户信息页"},{"id":3,"priority":"p0","description":"点击桌宠乐园后主区显示桌宠乐园页"},{"id":4,"priority":"p0","description":"点击设置后主区显示设置页"},{"id":5,"priority":"p1","description":"菜单项底部有退出登录选项"}]}

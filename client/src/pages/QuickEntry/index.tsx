@@ -3,11 +3,9 @@ import { Mic, Check, Wifi, Loader2 } from 'lucide-react';
 import dayjs from 'dayjs';
 import relativeTime from 'dayjs/plugin/relativeTime';
 import { logger } from '@lark-apaas/client-toolkit/logger';
-import { capabilityClient } from '@lark-apaas/client-toolkit';
 import { toast } from 'sonner';
 import { echofind } from '@client/src/api';
 import type { QuickEntryItem } from '@shared/api.interface';
-import type { EchofindVoiceToTextOneOutput } from '@shared/plugin-types';
 
 dayjs.extend(relativeTime);
 
@@ -199,18 +197,25 @@ const QuickEntry: React.FC = () => {
         });
         setIsRecognizing(true);
         try {
-          const audioContext = new AudioContext();
-          const arrayBuffer = await audioBlob.arrayBuffer();
-          const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
-          const wavBlob = audioContextToWav(audioBuffer);
-          const audioFile = new File([wavBlob], 'recording.wav', { type: 'audio/wav' });
+         const audioContext = new AudioContext({ sampleRate: 16000 });
+           const arrayBuffer = await audioBlob.arrayBuffer();
+           const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
+           const offlineCtx = new OfflineAudioContext(1, audioBuffer.duration * 16000, 16000);
+           const source = offlineCtx.createBufferSource();
+           source.buffer = audioBuffer;
+           source.connect(offlineCtx.destination);
+           source.start();
+           const resampled = await offlineCtx.startRendering();
+           const wavBlob = audioContextToWav(resampled);
+           const wavBuffer = await wavBlob.arrayBuffer();
+           const bytes = new Uint8Array(wavBuffer);
+           let binary = '';
+           for (let i = 0; i < bytes.byteLength; i += 1) {
+             binary += String.fromCharCode(bytes[i]);
+           }
+           const base64 = window.btoa(binary);
 
-          const result = await capabilityClient
-            .load('echofind_voice_to_text_1')
-            .call<EchofindVoiceToTextOneOutput>('speechToText', {
-              audio_url: [audioFile],
-              language: 'zh',
-            });
+           const result = await echofind.voice.asr(base64, wavBuffer.byteLength);
 
           if (result.text && result.text.trim()) {
             setItemName(result.text.trim());

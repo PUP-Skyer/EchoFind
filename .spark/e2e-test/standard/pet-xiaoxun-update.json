@@ -1,0 +1,19 @@
+{
+  "cases": [
+    {
+      "id": 1,
+      "priority": "p0",
+      "description": "打开应用，确认右下角悬浮宠物出现"
+    },
+    {
+      "id": 2,
+      "priority": "p0",
+      "description": "点击悬浮宠物打开对话面板，发送你好，验证小寻有回复"
+    },
+    {
+      "id": 3,
+      "priority": "p1",
+      "description": "进入个人主页-桌宠乐园，确认15个宠物形象网格展示"
+    }
+  ]
+}

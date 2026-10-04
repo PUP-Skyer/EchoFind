@@ -16,6 +16,7 @@ import UserProfile from './pages/UserProfile';
 import PetParadise from './pages/PetParadise';
 import FindGuide from './pages/FindGuide';
 import Schedule from './pages/Schedule';
+import BleControl from './pages/BleControl';
 
 const RoutesComponent = () => {
   return (
@@ -31,6 +32,7 @@ const RoutesComponent = () => {
           <Route path="statistics" element={<Statistics />} />
           <Route path="settings" element={<Settings />} />
           <Route path="schedule" element={<Schedule />} />
+          <Route path="ble-control" element={<BleControl />} />
           <Route path="profile" element={<UserProfile />} />
           <Route path="pet-paradise" element={<PetParadise />} />
         </Route>

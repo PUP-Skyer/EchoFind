@@ -8,8 +8,9 @@ import type {
   AIChatRequest,
   AIChatResponse,
   AIDailyRecommendResponse,
-  ScheduleTag,
   Schedule,
+  ScheduleTag,
+  ScheduleUpdateRequest,
 } from '@shared/api.interface';
 
 const MODEL_TIMEOUT_MS = 60000;
@@ -38,6 +39,18 @@ function inferRoom(
   if (signalStrength >= strongThreshold) return baseStationRoom;
   if (signalStrength >= midThreshold) return others[0] ?? baseStationRoom;
   return others[1] ?? others[0] ?? baseStationRoom;
+}
+
+function resolveRoom(
+  item: Pick<ItemLite, 'isStored' | 'signalStrength' | 'location'>,
+  _baseStationRoom: string,
+  _strongThreshold: number,
+): string {
+  if (!item.isStored) return '未存入';
+  if (item.location && item.location.trim() && item.location !== '0') {
+    return item.location.trim();
+  }
+  return '';
 }
 
 @Injectable()
@@ -130,22 +143,23 @@ ${items}
 ${context}
 
  你的能力：
- 1. 用户问"XX在哪/我的XX呢/找一下XX"时，从物品库里找对应的物品，根据状态区分回答：
-    - 未存入（检测不到信号）：说明物品已经被带出家门、随身带着，告诉用户"这个你随身带着呢～"，不说客厅/卧室/储物柜，也不用让用户回家拿
+  1. 用户问"XX在哪/我的XX呢/找一下XX"（找物品场景）时，从物品库里找对应的物品，根据状态区分回答：
+    - 未存入（检测不到信号）：回复"未找到，可能不在身边"，不说客厅/卧室/储物柜，也不要说"已经带着了"
     - 已存入（在家检测到信号）：说明物品放在家里，告诉用户它在哪个房间（客厅/卧室/储物柜）和信号情况
  2. 用户问"今天带什么/露营要带什么/出门要带什么/我要出发了/我要出门了"等出门相关问题时，做出门推荐，**只从物品库里已登记的物品里挑选**，结合当天日程场景和天气给出相关推荐，库里没有的物品不要编造、不要列出来
     输出要给一份相关清单（从库里挑最相关的，最多6件），如果库里没有相关物品就直接说"物品库里目前没有相关物品哦"。每个物品说明：物品名 + 当前状态 + 推荐理由
- 3. 出门推荐时的物品状态规则（重要）：
-    - 在家检测到信号（已存入）→ 还在家里 → 说"在客厅/卧室/储物柜，记得去拿一下"
-    - 检测不到信号（未存入/不在当前范围）→ 已经随身带着了 → 说"这个你已经带着了"，不要让用户回家拿、也不要说"记得自己拿"
-    - 物品库里没有的物品 → 不要出现在推荐清单里，宁可少推荐也不编造
-    - 如果库里完全没有相关物品 → 说"物品库里目前没有相关物品哦"
+  3. 出门推荐时的物品状态规则（重要，仅用于出门/带什么场景）：
+     - 在家检测到信号（已存入）→ 还在家里 → 说"在客厅/卧室/储物柜，记得去拿一下"
+     - 检测不到信号（未存入/不在当前范围）→ 视为已随身带好 → 说"已随身带好"，不要让用户回家拿、也不要说"记得自己拿"
+     - 物品库里没有的物品 → 不要出现在推荐清单里，宁可少推荐也不编造
+     - 如果库里完全没有相关物品 → 说"物品库里目前没有相关物品哦"
 4. 用户说"这个叫XX/这是XX/登记XX/录入XX"时，识别为登记新物品的意图
 5. 天气、日程相关问题，结合物品推荐"今日必带"清单
 6. 添加日程：intent=schedule_add，从话语里提取日程事件填入scheduleEvents
 7. 查询日程：intent=schedule_query
 8. 命名物品：用户说"把它命名为XX""刚贴的这个贴纸叫XX""这个叫XX"时，识别为name_item意图，表示给最近新录入/刚存入的物品改名；itemName填要改的名字
-9. 删除/取消日程：intent=schedule_delete，用户说"取消/删除XX"时，deleteKeyword填要取消的日程关键词；如果用户说了具体日期（如"后天的"），targetDate填YYYY-MM-DD，没说就留空
+ 9. 删除/取消日程：intent=schedule_delete，用户说"取消/删除XX"时，deleteKeyword填要取消的日程关键词；如果用户说了具体日期（如"后天的"），targetDate填YYYY-MM-DD，没说就留空
+ 10. 修改/调整日程：intent=schedule_update，updateKeyword填要修改的日程关键词（必填，用于匹配原日程），targetDate填要修改的日程日期YYYY-MM-DD（指定了就填，没指定留空）；scheduleEvents填修改后的日程信息（只填一个事件），用户只改时间就改startTime/endTime，只改标题就改title，只改地点就改location，没改的字段保持原样
 10. 闲聊时保持可爱、有亲和力
 10. 回答简洁，不超过3句话
 11. 用emoji增加活泼感，但不要太多
@@ -153,14 +167,15 @@ ${context}
 输出必须是严格的JSON格式，结构如下：
 {
   "reply": "给用户看的回复文本",
-  "intent": "find_items | register_item | name_item | daily_items | chat | schedule_add | schedule_query | schedule_delete",
+  "intent": "find_items | register_item | name_item | daily_items | chat | schedule_add | schedule_query | schedule_delete | schedule_update",
   "matchedItems": [
     {"name": "物品库中的精确物品名", "reason": "一句理由或状态说明，包含房间位置"}
   ],
   "registerItemName": "要登记的物品名称（仅登记意图时填）",
   "itemName": "要给物品改的名字（仅name_item意图时填）",
   "deleteKeyword": "要取消的日程关键词（仅schedule_delete意图时填）",
-  "targetDate": "要取消的日程日期YYYY-MM-DD（仅schedule_delete且用户指定日期时填）",
+  "updateKeyword": "要修改的日程关键词（仅schedule_update意图时填）",
+  "targetDate": "要取消/修改的日程日期YYYY-MM-DD（仅schedule_delete/schedule_update且用户指定日期时填）",
   "scheduleEvents": [
     {
       "title": "事件标题",
@@ -182,6 +197,7 @@ ${context}
 - 添加日程：intent=schedule_add，scheduleEvents填所有提取到的事件
 - 查询日程：intent=schedule_query，scheduleEvents留空
 - 删除日程：intent=schedule_delete，deleteKeyword填要取消的日程关键词，指定了日期就填targetDate
+- 修改日程：intent=schedule_update，updateKeyword填原日程关键词，targetDate填原日程日期（有就填），scheduleEvents填修改后的日程事件
 - 普通闲聊：intent=chat，matchedItems为空，scheduleEvents为空
 - 物品库中找不到就老实说找不到，不要编造
 - reply字段要口语化、可爱，直接给用户看`;
@@ -337,7 +353,7 @@ ${context}
             } else if (!r.inLibrary) {
               replyLines.push(`· ${r.name}（记得带上哦）`);
             } else {
-              replyLines.push(`· ${r.name}（已经带着了）`);
+              replyLines.push(`· ${r.name}（已随身带好）`);
             }
           }
           quick.reply = replyLines.join('\n');
@@ -350,14 +366,21 @@ ${context}
       return quick;
     }
 
+    const directItemMatch = this.tryDirectItemMatch(req.message, allItems, bs);
+    if (directItemMatch) {
+      directItemMatch.temporaryCarryItems = tempCarrySet;
+      return directItemMatch;
+    }
+
     const namedItems = allItems.filter((it: ItemLite) => it.name && it.name.trim().length > 0);
 
     const upcoming = await this.getUpcomingSchedules(3);
     const itemsText = namedItems.length > 0
       ? namedItems
           .map((it: ItemLite) => {
-            const room = inferRoom(it.isStored, it.signalStrength, bs.location, bs.threshold);
-            return `- ${it.name}（编号：${it.id}，位置：${room}，信号：${it.signalStrength}%）`;
+      const room = resolveRoom(it, bs.location, bs.threshold);
+             const locText = !it.isStored ? '未存入' : (room || '位置待确认');
+             return `- ${it.name}（编号：${it.id}，状态：${it.isStored ? '已存入' : '未存入'}，位置：${locText}）`;
           })
           .join('\n')
       : '（暂无已登记的物品，所有贴纸都还在待录入状态）';
@@ -415,7 +438,7 @@ ${context}
       };
       const content = data.choices?.[0]?.message?.content ?? '{}';
 
-      let parsed: {
+       let parsed: {
         reply?: string;
         intent?: string;
         matchedItems?: Array<{ name: string; reason: string }>;
@@ -430,6 +453,7 @@ ${context}
           tag: string;
         }>;
         deleteKeyword?: string;
+        updateKeyword?: string;
         targetDate?: string;
       };
       try {
@@ -634,6 +658,59 @@ ${context}
         }));
       }
 
+      if (intent === 'schedule_update' && parsed.updateKeyword) {
+        const keyword = parsed.updateKeyword.trim();
+        const { items: allSchedules } = await this.schedulesService.findAll();
+        const candidates = allSchedules.filter((s: Schedule) => {
+          if (!keyword) return false;
+          return s.title.includes(keyword) || keyword.includes(s.title);
+        });
+        if (parsed.targetDate) {
+          const dateFiltered = candidates.filter(
+            (s: Schedule) => s.scheduleDate === parsed.targetDate,
+          );
+          candidates.length = 0;
+          for (const s of dateFiltered) candidates.push(s);
+        }
+        const target = candidates[0];
+        const patchEvent = parsed.scheduleEvents?.[0];
+        if (target && patchEvent) {
+          try {
+            const patch: ScheduleUpdateRequest = {};
+            if (patchEvent.title && patchEvent.title.trim()) patch.title = patchEvent.title;
+            if (patchEvent.date && patchEvent.date.trim()) patch.scheduleDate = patchEvent.date;
+            if (patchEvent.startTime) patch.startTime = patchEvent.startTime;
+            if (patchEvent.endTime) patch.endTime = patchEvent.endTime;
+            if (patchEvent.location !== undefined) patch.location = patchEvent.location || null;
+            if (patchEvent.tag) {
+              const validTags: ScheduleTag[] = ['work', 'travel', 'life', 'other'];
+              if (validTags.includes(patchEvent.tag as ScheduleTag)) {
+                patch.tag = patchEvent.tag as ScheduleTag;
+              }
+            }
+            const updated = await this.schedulesService.update(target.id, patch, userId);
+            result.reply = `好的，已把${target.title}调整为 ${updated.scheduleDate} ${updated.startTime} 📅`;
+            result.updatedSchedule = {
+              id: updated.id,
+              title: updated.title,
+              date: updated.scheduleDate,
+              startTime: updated.startTime,
+              endTime: updated.endTime,
+              location: updated.location ?? '',
+              tag: updated.tag,
+            };
+          } catch (updErr) {
+            const msg = updErr instanceof Error ? updErr.message : String(updErr);
+            this.logger.warn('修改日程失败', msg);
+            result.reply = '修改日程失败了，告诉我更多细节好不好？';
+            result.intent = 'chat';
+          }
+        } else {
+          result.reply = '没找到对应的日程呢，告诉我更多细节好不好？';
+          result.intent = 'chat';
+        }
+      }
+
       result.temporaryCarryItems = tempCarrySet;
       return result;
     } catch (err) {
@@ -753,6 +830,64 @@ ${context}
         return;
       }
 
+      if (quick.intent === 'schedule_query') {
+        const quickWithDate = quick as AIChatResponse & { _queryDate?: string };
+        const targetDate = quickWithDate._queryDate || today;
+        const { items } = await this.schedulesService.findAll(targetDate);
+        const dateLabel = targetDate === today ? '今天' : targetDate;
+        if (items.length === 0) {
+          quick.reply = `${dateLabel}暂时没有安排哦～`;
+        } else {
+          const list = items
+            .map((s: Schedule) => `${s.startTime}-${s.endTime} ${s.title}`)
+            .join('、');
+          quick.reply = `${dateLabel}有 ${items.length} 个安排：${list}`;
+        }
+        quick.scheduleEvents = items.map((s: Schedule) => ({
+          title: s.title,
+          date: s.scheduleDate,
+          startTime: s.startTime,
+          endTime: s.endTime,
+          location: s.location ?? '',
+          tag: s.tag as ScheduleTag,
+        }));
+      }
+
+      if (quick.intent === 'schedule_delete' && (quick as { deleteKeyword?: string }).deleteKeyword) {
+        const qd = quick as { deleteKeyword?: string; targetDate?: string };
+        const keyword = qd.deleteKeyword?.trim() || '';
+        const { items: allSchedules } = await this.schedulesService.findAll();
+        let candidates = allSchedules.filter((s: Schedule) => {
+          if (!keyword) return false;
+          return s.title.includes(keyword) || keyword.includes(s.title);
+        });
+        if (qd.targetDate) {
+          candidates = candidates.filter((s: Schedule) => s.scheduleDate === qd.targetDate);
+        }
+        const toDelete = candidates.slice(0, 3);
+        const deleted: Array<{ id: string; title: string; date: string; startTime: string }> = [];
+        for (const s of toDelete) {
+          try {
+            await this.schedulesService.remove(s.id);
+            deleted.push({
+              id: s.id,
+              title: s.title,
+              date: s.scheduleDate,
+              startTime: s.startTime,
+            });
+          } catch (delErr) {
+            this.logger.warn('删除日程失败', s.id);
+          }
+        }
+        if (deleted.length > 0) {
+          quick.reply = `好的，已取消：${deleted.map((d) => d.title).join('、')} ✅`;
+          quick.deletedSchedules = deleted;
+        } else {
+          quick.reply = '没找到对应的日程呢，告诉我更多细节好不好？';
+          quick.intent = 'chat';
+        }
+      }
+
       const text = quick.reply;
       let i = 0;
       while (i < text.length) {
@@ -791,7 +926,7 @@ ${context}
             } else if (!r.inLibrary) {
               replyLines.push(`· ${r.name}（记得带上哦）`);
             } else {
-              replyLines.push(`· ${r.name}（已经带着了）`);
+              replyLines.push(`· ${r.name}（已随身带好）`);
             }
           }
           quick.reply = replyLines.join('\n');
@@ -805,14 +940,29 @@ ${context}
       return;
     }
 
+    const directItemMatch = this.tryDirectItemMatch(req.message, allItems, bs);
+    if (directItemMatch) {
+      const text = directItemMatch.reply;
+      let i = 0;
+      while (i < text.length) {
+        const step = Math.min(2, text.length - i);
+        yield { type: 'delta', content: text.slice(i, i + step) };
+        i += step;
+      }
+      directItemMatch.temporaryCarryItems = tempCarrySet;
+      yield { type: 'done', data: directItemMatch };
+      return;
+    }
+
     const namedItems = allItems.filter((it: ItemLite) => it.name && it.name.trim().length > 0);
 
     const upcoming = await this.getUpcomingSchedules(3);
     const itemsText = namedItems.length > 0
       ? namedItems
           .map((it: ItemLite) => {
-            const room = inferRoom(it.isStored, it.signalStrength, bs.location, bs.threshold);
-            return `- ${it.name}（编号：${it.id}，位置：${room}，信号：${it.signalStrength}%）`;
+      const room = resolveRoom(it, bs.location, bs.threshold);
+             const locText = !it.isStored ? '未存入' : (room || '位置待确认');
+             return `- ${it.name}（编号：${it.id}，状态：${it.isStored ? '已存入' : '未存入'}，位置：${locText}）`;
           })
           .join('\n')
       : '（暂无已登记的物品，所有贴纸都还在待录入状态）';
@@ -927,23 +1077,24 @@ ${context}
       reader.releaseLock();
     }
 
-    let parsed: {
-      reply?: string;
-      intent?: string;
-      matchedItems?: Array<{ name: string; reason: string }>;
-      registerItemName?: string;
-      itemName?: string;
-      scheduleEvents?: Array<{
-        title: string;
-        date: string;
-        startTime: string;
-        endTime: string;
-        location: string;
-        tag: string;
-      }>;
-      deleteKeyword?: string;
-      targetDate?: string;
-    };
+       let parsed: {
+        reply?: string;
+        intent?: string;
+        matchedItems?: Array<{ name: string; reason: string }>;
+        registerItemName?: string;
+        itemName?: string;
+        scheduleEvents?: Array<{
+          title: string;
+          date: string;
+          startTime: string;
+          endTime: string;
+          location: string;
+          tag: string;
+        }>;
+        deleteKeyword?: string;
+        updateKeyword?: string;
+        targetDate?: string;
+      };
     try {
       parsed = JSON.parse(fullContent || '{}') as typeof parsed;
     } catch {
@@ -1138,6 +1289,59 @@ ${context}
       }));
     }
 
+    if (intent === 'schedule_update' && parsed.updateKeyword) {
+      const keyword = parsed.updateKeyword.trim();
+      const { items: allSchedules } = await this.schedulesService.findAll();
+      const candidates = allSchedules.filter((s: Schedule) => {
+        if (!keyword) return false;
+        return s.title.includes(keyword) || keyword.includes(s.title);
+      });
+      if (parsed.targetDate) {
+        const dateFiltered = candidates.filter(
+          (s: Schedule) => s.scheduleDate === parsed.targetDate,
+        );
+        candidates.length = 0;
+        for (const s of dateFiltered) candidates.push(s);
+      }
+      const target = candidates[0];
+      const patchEvent = parsed.scheduleEvents?.[0];
+      if (target && patchEvent) {
+        try {
+          const patch: ScheduleUpdateRequest = {};
+          if (patchEvent.title && patchEvent.title.trim()) patch.title = patchEvent.title;
+          if (patchEvent.date && patchEvent.date.trim()) patch.scheduleDate = patchEvent.date;
+          if (patchEvent.startTime) patch.startTime = patchEvent.startTime;
+          if (patchEvent.endTime) patch.endTime = patchEvent.endTime;
+          if (patchEvent.location !== undefined) patch.location = patchEvent.location || null;
+          if (patchEvent.tag) {
+            const validTags: ScheduleTag[] = ['work', 'travel', 'life', 'other'];
+            if (validTags.includes(patchEvent.tag as ScheduleTag)) {
+              patch.tag = patchEvent.tag as ScheduleTag;
+            }
+          }
+          const updated = await this.schedulesService.update(target.id, patch, userId);
+          result.reply = `好的，已把${target.title}调整为 ${updated.scheduleDate} ${updated.startTime} 📅`;
+          result.updatedSchedule = {
+            id: updated.id,
+            title: updated.title,
+            date: updated.scheduleDate,
+            startTime: updated.startTime,
+            endTime: updated.endTime,
+            location: updated.location ?? '',
+            tag: updated.tag,
+          };
+        } catch (updErr) {
+          const msg = updErr instanceof Error ? updErr.message : String(updErr);
+          this.logger.warn('修改日程失败', msg);
+          result.reply = '修改日程失败了，告诉我更多细节好不好？';
+          result.intent = 'chat';
+        }
+      } else {
+        result.reply = '没找到对应的日程呢，告诉我更多细节好不好？';
+        result.intent = 'chat';
+      }
+    }
+
     result.temporaryCarryItems = tempCarrySet;
     yield { type: 'done', data: result };
   }
@@ -1211,10 +1415,11 @@ ${context}
       if (seenNames.has(name)) continue;
       if (result.length >= 6) break;
       seenNames.add(name);
-      const room = inferRoom(item.isStored, item.signalStrength, bs.location, bs.threshold);
-      let finalReason = reason;
-      if (item.isStored) finalReason += `，在${room}记得去拿`;
-      else finalReason += '（已经带着了）';
+      const room = resolveRoom(item, bs.location, bs.threshold);
+       let finalReason = reason;
+       if (item.isStored && room) finalReason += `，在${room}记得去拿`;
+       else if (item.isStored) finalReason += '（已存入，位置待确认）';
+       else finalReason += '（已随身带好）';
       result.push({
         id: item.id,
         name,
@@ -1258,6 +1463,107 @@ ${context}
     return items;
   }
 
+  private tryDirectItemMatch(
+    message: string,
+    allItems: ItemLite[],
+    bs: { location: string; locationCode: string; threshold: number },
+  ): AIChatResponse | null {
+    const trimmed = message.trim();
+    const findPattern = /(?:找|寻找|帮我找|我的|我的[那这]个|在哪|哪儿|在哪里|在哪儿|放哪|放哪儿|不见了|找不到|丢了|看到|看见).*$/;
+    if (!findPattern.test(trimmed) && !/[东西物品]$/.test(trimmed)) {
+      const simpleQ = /^(.*?)(在哪|在哪里|哪儿|在哪里|放哪儿|放哪了|找不到了|不见了)$/.exec(trimmed);
+      if (!simpleQ && !/^找/.test(trimmed) && !/^我的/.test(trimmed)) {
+        return null;
+      }
+    }
+
+    const namedItems = allItems.filter((it: ItemLite) => it.name && it.name.trim().length > 0);
+    if (namedItems.length === 0) return null;
+
+    const cleanMsg = trimmed.replace(/[？?。！!，,]/g, '');
+
+    let bestMatch: ItemLite | null = null;
+    let bestScore = 0;
+
+    for (const it of namedItems) {
+      const name = it.name;
+      if (!name) continue;
+      if (cleanMsg === name) {
+        bestMatch = it;
+        bestScore = 100;
+        break;
+      }
+      if (cleanMsg.includes(name)) {
+        const score = name.length * 2;
+        if (score > bestScore) {
+          bestMatch = it;
+          bestScore = score;
+        }
+      }
+      if (name.includes(cleanMsg) && cleanMsg.length >= 2) {
+        const score = cleanMsg.length;
+        if (score > bestScore) {
+          bestMatch = it;
+          bestScore = score;
+        }
+      }
+    }
+
+    if (!bestMatch || bestScore < 2) return null;
+
+    const found = bestMatch;
+    const room = resolveRoom(found, bs.location, bs.threshold);
+    if (!found.isStored) {
+      return {
+        reply: `${found.name}现在没有存入，可能不在家里。`,
+        intent: 'find_items',
+        matchedItem: { id: found.id, name: found.name, isStored: false, location: '未存入' },
+        matchedItems: [
+          {
+            id: found.id,
+            name: found.name,
+            reason: '未存入，可能不在家里',
+            isStored: false,
+            signalStrength: found.signalStrength,
+            location: '未存入',
+          },
+        ],
+      };
+    }
+    if (room) {
+      return {
+        reply: `你的${found.name}的存入位置是${room}，快去拿吧！`,
+        intent: 'find_items',
+        matchedItem: { id: found.id, name: found.name, isStored: true, location: room },
+        matchedItems: [
+          {
+            id: found.id,
+            name: found.name,
+            reason: `在${room}`,
+            isStored: true,
+            signalStrength: found.signalStrength,
+            location: room,
+          },
+        ],
+      };
+    }
+    return {
+      reply: `${found.name}已经存入了，但还没有记录存入位置。`,
+      intent: 'find_items',
+      matchedItem: { id: found.id, name: found.name, isStored: true, location: '' },
+      matchedItems: [
+        {
+          id: found.id,
+          name: found.name,
+          reason: '已存入，位置待确认',
+          isStored: true,
+          signalStrength: found.signalStrength,
+          location: '',
+        },
+      ],
+    };
+  }
+
   private tryQuickReply(
     message: string,
     allItems: ItemLite[],
@@ -1292,10 +1598,17 @@ ${context}
       }
     }
 
-    const nameMatch = /(?:命名为|改名为|改名|叫|这个叫|刚贴的.*?叫|它叫).{0,6}?([^，。！？、\s]{1,20})$/.exec(trimmed);
-    if (nameMatch && nameMatch[1]) {
-      const newName = nameMatch[1].trim();
-      if (newName.length > 0 && newName.length <= 20 && /[^a-zA-Z0-9]/.test(newName)) {
+    const namePattern = /(?:(?:帮|给|把).*(?:新存入的|新放的|刚贴的|刚存入的|新的|这个|它|物品|这个物品|刚贴的这个贴纸).{0,20}?(?:命名为|命名|改名为|起名|起名字|改个名字叫|叫)|^(?:这个物品|这个|它|新存入的|新放的).{0,6}?(?:叫|命名为|命名|改名为|起名|起名字)|(?:命名为|命名|改名为|起名|起名字).{0,6}?$)/u;
+    const nameExtractPattern = /(?:(?:命名为|命名|改名为|起名|起名字|改个名字叫|叫)[为]*\s*)([^，。！？、\s]{1,20})/u;
+    const isNamingSentence = namePattern.test(trimmed);
+    const nameExtract = nameExtractPattern.exec(trimmed);
+    const hasNamingKeyword = /命名|起名|起名字|改名为|改名/.test(trimmed);
+    const isThisIsPattern = /^(?:这个|这个物品|它|新存入的|新放的|刚贴的).{0,6}?是/.test(trimmed);
+    const thisIsExtract = /^(?:这个|这个物品|它|新存入的|新放的|刚贴的).{0,6}?是\s*([^，。！？、\s]{1,20})/u.exec(trimmed);
+
+    if ((isNamingSentence && nameExtract) || (isThisIsPattern && thisIsExtract)) {
+      const newName = (nameExtract?.[1] || thisIsExtract?.[1] || '').trim();
+      if (newName && newName.length > 0 && newName.length <= 20) {
         const unnamedStored = allItems
           .filter((it: ItemLite) => it.isStored && (!it.name || it.name.trim() === ''))
           .sort((a: ItemLite, b: ItemLite) =>
@@ -1323,6 +1636,10 @@ ${context}
       }
     }
 
+    if (hasNamingKeyword && !nameExtract) {
+      // 有命名关键词但没提取到名字，走大模型解析
+    }
+
     const itemKeywords = ['钥匙', '钱包', '眼镜', '手机', '耳机', '雨伞', '水杯', '门禁', '工牌', '身份证', '护照', '充电器', '充电宝', '眼镜盒', '笔记本', '书本', '文件', '公文包', '书包', '手套', '围巾', '帽子'];
     let findKeyword = '';
     for (const kw of itemKeywords) {
@@ -1337,39 +1654,56 @@ ${context}
       if (found) {
         if (!found.isStored) {
           return {
-            reply: '这个你随身带着呢～不用特意找它。',
+            reply: `${found.name}现在没有存入，可能不在家里。`,
             intent: 'find_items',
-            matchedItem: { id: found.id, name: found.name, isStored: found.isStored, location: '随身' },
+            matchedItem: { id: found.id, name: found.name, isStored: found.isStored, location: '未存入' },
             matchedItems: [
               {
                 id: found.id,
                 name: found.name,
-                reason: '随身带着，不用找',
+                reason: '未存入，可能不在家里',
                 isStored: found.isStored,
                 signalStrength: found.signalStrength,
-                location: '随身',
+                location: '未存入',
               },
             ],
           };
         }
-        const room = inferRoom(found.isStored, found.signalStrength, bs.location, bs.threshold);
+        const room = resolveRoom(found, bs.location, bs.threshold);
+        if (room && room !== '未存入' && room !== '0') {
+          return {
+            reply: `你的${found.name}的存入位置是${room}，快去拿吧！`,
+            intent: 'find_items',
+            matchedItem: { id: found.id, name: found.name, isStored: found.isStored, location: room },
+            matchedItems: [
+              {
+                id: found.id,
+                name: found.name,
+                reason: `在${room}`,
+                isStored: found.isStored,
+                signalStrength: found.signalStrength,
+                location: room,
+              },
+            ],
+          };
+        }
         return {
-          reply: `找到了！${found.name}在${room}，信号强度 ${found.signalStrength}%。`,
+          reply: `${found.name}已经存入了，但还没有记录存入位置。`,
           intent: 'find_items',
-          matchedItem: { id: found.id, name: found.name, isStored: found.isStored, location: room },
+          matchedItem: { id: found.id, name: found.name, isStored: found.isStored, location: '' },
           matchedItems: [
             {
               id: found.id,
               name: found.name,
-              reason: `在${room}，信号 ${found.signalStrength}%`,
+              reason: '已存入，位置未记录',
               isStored: found.isStored,
               signalStrength: found.signalStrength,
-              location: room,
+              location: '',
             },
           ],
         };
       }
-      return { reply: '还没登记这个物品哦，可以先去贴个贴纸登记一下～✨', intent: 'chat' };
+      return { reply: `小寻没有找到${findKeyword}的记录哦，请确认物品名称～`, intent: 'chat' };
     }
 
     if (/登记|录入|这叫|这个叫|这是|这个是/.test(trimmed)) {
@@ -1417,32 +1751,32 @@ ${context}
     }
 
     if (/今天.*带|出门.*带|必带|推荐|我要出门|我出门了|出门要带|我要出发了|我出发了|出发.*带|今天.*拿|带什么|拿什么/.test(trimmed)) {
-      const baseRecs = allItems.slice(0, 3).map((it: ItemLite) => {
-        const room = inferRoom(it.isStored, it.signalStrength, bs.location, bs.threshold);
-        return {
-          id: it.id,
-          name: it.name,
-          reason: `在${room}，信号 ${it.signalStrength}%`,
-          isStored: it.isStored,
-          signalStrength: it.signalStrength,
-          location: room,
-        };
-      });
+       const baseRecs = allItems.slice(0, 3).map((it: ItemLite) => {
+              const room = resolveRoom(it, bs.location, bs.threshold);
+         return {
+           id: it.id,
+           name: it.name,
+           reason: it.isStored ? `在${room}，记得去拿` : '已随身带好',
+           isStored: it.isStored,
+           signalStrength: it.signalStrength,
+           location: it.isStored ? room : '随身',
+         };
+       });
       const tempItems = temporaryCarryItems.filter(
         (name: string) => !baseRecs.some((r) => r.name === name),
       );
       const tempRecs = tempItems.map((name: string) => {
         const found = allItems.find((it: ItemLite) => it.name === name || it.name.includes(name));
-        if (found) {
-          const room = inferRoom(found.isStored, found.signalStrength, bs.location, bs.threshold);
-          return {
-            id: found.id,
-            name: found.name,
-            reason: `你说要记得带的，在${room}`,
-            isStored: found.isStored,
-            signalStrength: found.signalStrength,
-            location: room,
-          };
+         if (found) {
+        const room = resolveRoom(found, bs.location, bs.threshold);
+           return {
+             id: found.id,
+             name: found.name,
+             reason: found.isStored ? `你说要记得带的，在${room}` : '你说要记得带的，已随身带好',
+             isStored: found.isStored,
+             signalStrength: found.signalStrength,
+             location: found.isStored ? room : '随身',
+           };
         }
         return {
           id: `temp_${name}`,
@@ -1454,16 +1788,19 @@ ${context}
         };
       });
       const recs = [...baseRecs, ...tempRecs];
-      const replyLines: string[] = ['出门必带清单来啦👇'];
-      for (const r of recs) {
+      const replyLines: string[] = ['出门必带清单整理好啦，一共' + recs.length + '件：'];
+      recs.forEach((r, idx) => {
+        const num = idx + 1;
         if (r.id.startsWith('temp_')) {
-          replyLines.push(`· ${r.name}（你说要记得带的，别忘了）`);
+          replyLines.push(`${num}. **${r.name}** — 你说要记得带的，别忘了哦`);
+        } else if (r.isStored && r.location && r.location !== '未存入') {
+          replyLines.push(`${num}. **${r.name}** — 在${r.location}，记得去拿`);
         } else if (r.isStored) {
-          replyLines.push(`· ${r.name}在${r.location}，记得去拿`);
+          replyLines.push(`${num}. **${r.name}** — 已存入，位置待确认`);
         } else {
-          replyLines.push(`· ${r.name}（已经带着了，不用找）`);
+          replyLines.push(`${num}. **${r.name}** — 已随身带好`);
         }
-      }
+      });
       return {
         reply: replyLines.join('\n'),
         intent: 'daily_items',
@@ -1529,53 +1866,87 @@ ${context}
     if (findKeyword2 && findKeyword2 !== 'find_generic') {
       const found = allItems.find((it: ItemLite) => it.name.includes(findKeyword2));
       if (found) {
-        const room = inferRoom(found.isStored, found.signalStrength, bs.location, bs.threshold);
+        if (!found.isStored) {
+          return {
+            reply: `${found.name}现在没有存入，可能不在家里。`,
+            intent: 'find_items',
+            matchedItem: { id: found.id, name: found.name, isStored: found.isStored, location: '未存入' },
+            matchedItems: [
+              {
+                id: found.id,
+                name: found.name,
+                reason: '未存入，可能不在家里',
+                isStored: found.isStored,
+                signalStrength: found.signalStrength,
+                location: '未存入',
+              },
+            ],
+          };
+        }
+       const room = resolveRoom(found, bs.location, bs.threshold);
+        if (room && room !== '未存入' && room !== '0') {
+          return {
+            reply: `你的${found.name}的存入位置是${room}，快去拿吧！`,
+            intent: 'find_items',
+            matchedItem: { id: found.id, name: found.name, isStored: found.isStored, location: room },
+            matchedItems: [
+              {
+                id: found.id,
+                name: found.name,
+                reason: `在${room}`,
+                isStored: found.isStored,
+                signalStrength: found.signalStrength,
+                location: room,
+              },
+            ],
+          };
+        }
         return {
-          reply: `找到了！${found.name}在${room}，信号强度 ${found.signalStrength}%。`,
+          reply: `${found.name}已经存入了，但还没有记录存入位置。`,
           intent: 'find_items',
-          matchedItem: { id: found.id, name: found.name, isStored: found.isStored, location: room },
+          matchedItem: { id: found.id, name: found.name, isStored: found.isStored, location: '' },
           matchedItems: [
             {
               id: found.id,
               name: found.name,
-              reason: `在${room}，信号 ${found.signalStrength}%`,
+              reason: '已存入，位置未记录',
               isStored: found.isStored,
               signalStrength: found.signalStrength,
-              location: room,
+              location: '',
             },
           ],
         };
       }
-      return { reply: '还没登记这个物品哦，可以先去贴个贴纸登记一下～✨', intent: 'chat' };
+      return { reply: `小寻没有找到${findKeyword2}的记录哦，请确认物品名称～`, intent: 'chat' };
     }
 
     if (/今天.*带|出门.*带|必带|推荐|我要出门|我出门了|出门要带|我要出发了|我出发了|出发.*带|今天.*拿|带什么|拿什么/.test(trimmed)) {
-      const baseRecs = allItems.slice(0, 3).map((it: ItemLite) => {
-        const room = inferRoom(it.isStored, it.signalStrength, bs.location, bs.threshold);
-        return {
-          id: it.id,
-          name: it.name,
-          reason: `在${room}，信号 ${it.signalStrength}%`,
-          isStored: it.isStored,
-          signalStrength: it.signalStrength,
-          location: room,
-        };
-      });
+       const baseRecs = allItems.slice(0, 3).map((it: ItemLite) => {
+              const room = resolveRoom(it, bs.location, bs.threshold);
+         return {
+           id: it.id,
+           name: it.name,
+           reason: it.isStored ? `在${room}，记得去拿` : '已随身带好',
+           isStored: it.isStored,
+           signalStrength: it.signalStrength,
+           location: it.isStored ? room : '随身',
+         };
+       });
       const tempItems = temporaryCarryItems.filter(
         (name: string) => !baseRecs.some((r) => r.name === name),
       );
       const tempRecs = tempItems.map((name: string) => {
         const found = allItems.find((it: ItemLite) => it.name === name || it.name.includes(name) || name.includes(it.name));
-        if (found) {
-          const room = inferRoom(found.isStored, found.signalStrength, bs.location, bs.threshold);
-          return {
-            id: found.id,
-            name: found.name,
-            reason: `你说要记得带的，在${room}`,
-            isStored: found.isStored,
-            signalStrength: found.signalStrength,
-            location: room,
-          };
+         if (found) {
+        const room = resolveRoom(found, bs.location, bs.threshold);
+           return {
+             id: found.id,
+             name: found.name,
+             reason: found.isStored ? `你说要记得带的，在${room}` : '你说要记得带的，已随身带好',
+             isStored: found.isStored,
+             signalStrength: found.signalStrength,
+             location: found.isStored ? room : '随身',
+           };
         }
         return {
           id: `temp_${name}`,
@@ -1587,16 +1958,19 @@ ${context}
         };
       });
       const recs = [...baseRecs, ...tempRecs];
-      const replyLines: string[] = ['出门必带清单来啦👇'];
-      for (const r of recs) {
+      const replyLines: string[] = ['出门必带清单整理好啦，一共' + recs.length + '件：'];
+      recs.forEach((r, idx) => {
+        const num = idx + 1;
         if (r.id.startsWith('temp_')) {
-          replyLines.push(`· ${r.name}（你说要记得带的，别忘了）`);
+          replyLines.push(`${num}. **${r.name}** — 你说要记得带的，别忘了哦`);
+        } else if (r.isStored && r.location && r.location !== '未存入') {
+          replyLines.push(`${num}. **${r.name}** — 在${r.location}，记得去拿`);
         } else if (r.isStored) {
-          replyLines.push(`· ${r.name}在${r.location}，记得去拿`);
+          replyLines.push(`${num}. **${r.name}** — 已存入，位置待确认`);
         } else {
-          replyLines.push(`· ${r.name}（已经带着了，不用找）`);
+          replyLines.push(`${num}. **${r.name}** — 已随身带好`);
         }
-      }
+      });
       return {
         reply: replyLines.join('\n'),
         intent: 'daily_items',
@@ -1605,37 +1979,6 @@ ${context}
           ? { id: recs[0].id, name: recs[0].name, isStored: recs[0].isStored, location: recs[0].location }
           : undefined,
       };
-    }
-
-    const nameMatch2 = /(?:命名为|改名为|改名|叫|这个叫|刚贴的.*?叫|它叫).{0,6}?([^，。！？、\s]{1,20})$/.exec(trimmed);
-    if (nameMatch2 && nameMatch2[1]) {
-      const newName = nameMatch2[1].trim();
-      if (newName.length > 0 && newName.length <= 20 && /[^a-zA-Z0-9]/.test(newName)) {
-        const unnamedStored = allItems
-          .filter((it: ItemLite) => it.isStored && (!it.name || it.name.trim() === ''))
-          .sort((a: ItemLite, b: ItemLite) =>
-            new Date(b.reportTime).getTime() - new Date(a.reportTime).getTime(),
-          );
-        const target = unnamedStored[0];
-        if (target) {
-          return {
-            reply: `好的，已命名为：${newName} ✨`,
-            intent: 'name_item',
-            matchedItems: [],
-            namedItem: {
-              id: target.id,
-              name: newName,
-              isStored: target.isStored,
-              location: target.location,
-            },
-            registerItemName: newName,
-          };
-        }
-        return {
-          reply: '暂时没有待命名的新物品哦～先贴个贴纸、等它存入后再告诉我名字吧！',
-          intent: 'chat',
-        };
-      }
     }
 
     if (/登记|录入|这叫|这个叫|这是|这个是/.test(trimmed)) {

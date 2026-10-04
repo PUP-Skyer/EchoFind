@@ -1,0 +1,1 @@
+{"cases":[{"id":1,"priority":"p0","description":"打开概览页，左侧仅显示一个侧边栏（EchoFind logo + 概览/数据流/物品管理/设备管理等菜单项），无重复"},{"id":2,"priority":"p0","description":"点击右下角悬浮宠物，对话面板从右侧滑出，面板内消息区可见欢迎语（含“小寻”字样），不是空白"},{"id":3,"priority":"p1","description":"对话面板关闭后，页面恢复正常布局，无遮罩残留"}]}

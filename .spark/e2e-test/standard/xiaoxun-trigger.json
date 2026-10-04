@@ -1,0 +1,1 @@
+{"cases":[{"id":1,"priority":"p0","description":"页面加载后对话面板默认不显示"},{"id":2,"priority":"p0","description":"点击右下角悬浮宠物后弹出对话面板"},{"id":3,"priority":"p0","description":"点击遮罩层或关闭按钮可以收起对话面板"},{"id":4,"priority":"p1","description":"hover宠物时不显示气泡和额外按钮"}]}
